@@ -14,59 +14,93 @@ local recruit_textfield
 
 local recruit_button
 
+local cancelButton
+
 local filter_dropdown
 
 local is_recruiting = false
 
 local raid_manager
 
-local RecruitCanvas
-
 local dms_only
+
+local settings
 
 local function OnLoad()
 
 
-    local settings = api.GetSettings("auxu")
+    settings = api.GetSettings("Actually_Useable_X_Up")
 
+    -- Initialize default settings if they don't exist
+    local needs_save = false
     if settings.blocklist == nil then
         settings.blocklist = {}
         settings.hide_cancel = false
+        needs_save = true
+    end
+    if settings.cancel_btn_x == nil then
+        settings.cancel_btn_x = (api.Interface:GetScreenWidth() / 2) - 60
+        needs_save = true
+    end
+    if settings.cancel_btn_y == nil then
+        settings.cancel_btn_y = 50
+        needs_save = true
+    end
+    if settings.recruit_text == nil then
+        settings.recruit_text = ""
+        needs_save = true
+    end
+    if settings.filter_selection == nil then
+        settings.filter_selection = 1
+        needs_save = true
+    end
+    if settings.dms_selection == nil then
+        settings.dms_selection = 1
+        needs_save = true
+    end
+    if settings.is_recruiting == nil then
+        settings.is_recruiting = false
+        needs_save = true
+    end
+    if needs_save then
         api.SaveSettings()
     end
 
-    -- Recruit canvas
+    -- Button position
+    local btn_x = settings.cancel_btn_x
+    local btn_y = settings.cancel_btn_y
 
-    RecruitCanvas = api.Interface:CreateEmptyWindow("recruitWindow")
-    RecruitCanvas:AddAnchor("CENTER", "UIParent", 0, 50)
-    RecruitCanvas:SetExtent(200,100)
-    RecruitCanvas:Show(false)
-
-    RecruitCanvas.bg = RecruitCanvas:CreateNinePartDrawable(TEXTURE_PATH.HUD, "background")
-    RecruitCanvas.bg:SetTextureInfo("bg_quest")
-    RecruitCanvas.bg:SetColor(0, 0, 0, 0.5)
-    RecruitCanvas.bg:AddAnchor("TOPLEFT", RecruitCanvas, 0, 0)
-    RecruitCanvas.bg:AddAnchor("BOTTOMRIGHT", RecruitCanvas, 0, 0)
-
-    cancelButton = RecruitCanvas:CreateChildWidget("button","cancel_x", 0 , true)
-    cancelButton:SetText("Cancel Auto Raid")
-    cancelButton:AddAnchor("TOPLEFT", RecruitCanvas, "TOPLEFT", 37, 34)
+    -- Create draggable toggle button directly on UIParent (always visible)
+    cancelButton = api.Interface:CreateWidget("button", "cancelAutoRaidBtn", "UIParent")
+    cancelButton:SetText("Start Recruiting")
+    cancelButton:SetExtent(120, 30)
+    cancelButton:AddAnchor("TOPLEFT", "UIParent", btn_x, btn_y)
     api.Interface:ApplyButtonSkin(cancelButton, BUTTON_BASIC.DEFAULT)
+    cancelButton:Show(true)
 
-    function RecruitCanvas:OnDragStart()
-        if api.Input:IsShiftKeyDown() then
-          RecruitCanvas:StartMoving()
-          api.Cursor:ClearCursor()
-          api.Cursor:SetCursorImage(CURSOR_PATH.MOVE, 0, 0)
-        end
+    function cancelButton:OnDragStart()
+        cancelButton:StartMoving()
+        api.Cursor:ClearCursor()
+        api.Cursor:SetCursorImage(CURSOR_PATH.MOVE, 0, 0)
     end
-    RecruitCanvas:SetHandler("OnDragStart", RecruitCanvas.OnDragStart)
-    function RecruitCanvas:OnDragStop()
-        RecruitCanvas:StopMovingOrSizing()
+
+    function cancelButton:OnDragStop()
+        cancelButton:StopMovingOrSizing()
+        local current_x, current_y = cancelButton:GetEffectiveOffset()
+        settings.cancel_btn_x = current_x
+        settings.cancel_btn_y = current_y
+        api.SaveSettings()
         api.Cursor:ClearCursor()
     end
-    RecruitCanvas:SetHandler("OnDragStop", RecruitCanvas.OnDragStop)
-    RecruitCanvas:EnableDrag(true)
+
+    cancelButton:SetHandler("OnDragStart", cancelButton.OnDragStart)
+    cancelButton:SetHandler("OnDragStop", cancelButton.OnDragStop)
+    if cancelButton.RegisterForDrag ~= nil then
+        cancelButton:RegisterForDrag("LeftButton")
+    end
+    if cancelButton.EnableDrag ~= nil then
+        cancelButton:EnableDrag(true)
+    end
 
     raid_manager = ADDON:GetContent(UIC.RAID_MANAGER)
 
@@ -85,14 +119,20 @@ local function OnLoad()
     recruit_textfield:SetExtent(150, 30)
     recruit_textfield:SetMaxTextLength(64)
     recruit_textfield:CreateGuideText("X CR")
+    recruit_textfield:SetText(settings.recruit_text)
     recruit_textfield:Show(true)
+
+    recruit_textfield:SetHandler("OnTextChanged", function()
+        settings.recruit_text = recruit_textfield:GetText()
+        api.SaveSettings()
+    end)
 
     -- Recruit filtering
     filter_dropdown = api.Interface:CreateComboBox(raid_manager)
     filter_dropdown:SetExtent(100, 30)
     filter_dropdown:AddAnchor("LEFT", raid_manager, 285, 140)
     filter_dropdown.dropdownItem =  {"Equals","Contains","Starts With"}
-    filter_dropdown:Select(1)
+    filter_dropdown:Select(settings.filter_selection)
     filter_dropdown:Show(true)
 
     -- DMs only
@@ -100,37 +140,57 @@ local function OnLoad()
     dms_only:SetExtent(100, 30)
     dms_only:AddAnchor("LEFT", raid_manager, 390, 140)
     dms_only.dropdownItem = {"All Chats","Whispers","Guild"}
-    dms_only:Select(1)
+    dms_only:Select(settings.dms_selection)
     dms_only:Show(true)
+
+    -- Save dropdown selections when raid window closes
+    raid_manager:SetHandler("OnHide", function()
+        settings.filter_selection = filter_dropdown.selctedIndex
+        settings.dms_selection = dms_only.selctedIndex
+        api.SaveSettings()
+    end)
+
+    -- Restore recruiting state
+    is_recruiting = settings.is_recruiting
+    if is_recruiting then
+        recruit_button:SetText("Stop Recruiting")
+        cancelButton:SetText("Stop Recruiting")
+        recruit_textfield:Enable(false)
+        recruit_message = string.lower(recruit_textfield:GetText())
+    end
 
     recruit_button:SetHandler("OnClick", function()
         if is_recruiting then
             is_recruiting = false
             recruit_button:SetText("Start Recruiting")
+            cancelButton:SetText("Start Recruiting")
             recruit_textfield:Enable(true)
-            RecruitCanvas:Show(false)
         else
             is_recruiting = true
             recruit_button:SetText("Stop Recruiting")
+            cancelButton:SetText("Stop Recruiting")
             recruit_textfield:Enable(false)
             recruit_message = string.lower(recruit_textfield:GetText())
-            RecruitCanvas:Show(true)
         end
+        settings.is_recruiting = is_recruiting
+        api.SaveSettings()
     end)
 
     cancelButton:SetHandler("OnClick", function()
         if is_recruiting then
             is_recruiting = false
             recruit_button:SetText("Start Recruiting")
+            cancelButton:SetText("Start Recruiting")
             recruit_textfield:Enable(true)
-            RecruitCanvas:Show(false)
         else
             is_recruiting = true
             recruit_button:SetText("Stop Recruiting")
+            cancelButton:SetText("Stop Recruiting")
             recruit_textfield:Enable(false)
             recruit_message = string.lower(recruit_textfield:GetText())
-            RecruitCanvas:Show(true)
         end
+        settings.is_recruiting = is_recruiting
+        api.SaveSettings()
     end)
 end
 
@@ -139,7 +199,7 @@ local function OnUnload()
         recruit_button:Show(false)
         recruit_textfield:Show(false)
         raid_manager:SetExtent(canvas_width,395)
-        RecruitCanvas:Show(false)
+        cancelButton:Show(false)
         filter_dropdown:Show(false)
         dms_only:Show(false)
     end
