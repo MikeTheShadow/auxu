@@ -1,7 +1,7 @@
 local api = require("api")
 local auxu = {
 	name = "Actually Useable X Up",
-	version = "3.0",
+	version = "3.0", -- Static Version 3.0
 	author = "MikeTheShadow",
 	desc = "A simple raid manager",
 }
@@ -22,6 +22,11 @@ local raid_manager, RecruitCanvas
 local list_manager_canvas, active_whitelist_dropdown, open_manager_btn, invite_whitelist_btn
 local canvas_width
 
+-- Scroll Window Elements
+local member_scroll_wnd
+local scroll_children = {}
+local list_refresh_counter = 0
+
 -- =========================================================
 -- HELPER FUNCTIONS
 -- =========================================================
@@ -30,7 +35,6 @@ local function FormatName(name)
 	if type(name) ~= "string" or name == "" then
 		return ""
 	end
-	-- Capitalize first letter, lowercase the rest
 	return string.upper(string.sub(name, 1, 1)) .. string.lower(string.sub(name, 2))
 end
 
@@ -42,6 +46,67 @@ local function RebuildBlacklistLookup()
 			blacklist_lookup[formatted] = true
 		end
 	end
+end
+
+-- Ported from Land Demo Tracker Example
+local function CreateScrollWindow(parent, ownId, index)
+	local frame = parent:CreateChildWidget("emptywidget", ownId, index, true)
+	frame:Show(true)
+
+	local content = frame:CreateChildWidget("emptywidget", "content", 0, true)
+	content:EnableScroll(true)
+	content:Show(true)
+	frame.content = content
+
+	local scroll = W_CTRL.CreateScroll("scroll", frame)
+	scroll:AddAnchor("TOPRIGHT", frame, 0, 0)
+	scroll:AddAnchor("BOTTOMRIGHT", frame, 0, 0)
+	scroll:AlwaysScrollShow()
+	frame.scroll = scroll
+
+	content:AddAnchor("TOPLEFT", frame, 0, 0)
+	content:AddAnchor("BOTTOM", frame, 0, 0)
+	content:AddAnchor("RIGHT", scroll, "LEFT", -5, 0)
+
+	function scroll.vs:OnSliderChanged(_value)
+		frame.content:ChangeChildAnchorByScrollValue("vert", _value)
+		if frame.SliderChangedProc ~= nil then
+			frame:SliderChangedProc(_value)
+		end
+	end
+	scroll.vs:SetHandler("OnSliderChanged", scroll.vs.OnSliderChanged)
+
+	function frame:SetEnable(enable)
+		self:Enable(enable)
+		scroll:SetEnable(enable)
+	end
+
+	function frame:ResetScroll(totalHeight)
+		scroll.vs:SetMinMaxValues(0, totalHeight)
+		local height = frame:GetHeight()
+		if totalHeight <= height then
+			scroll:SetEnable(false)
+		else
+			scroll:SetEnable(true)
+		end
+	end
+
+	return frame
+end
+
+local function ClearScrollList()
+	-- Hide AND Remove Anchors to prevent layout ghosting
+	for _, widget in ipairs(scroll_children) do
+		if widget then
+			if widget.Show then
+				widget:Show(false)
+			end
+			if widget.RemoveAllAnchors then
+				widget:RemoveAllAnchors()
+			end
+		end
+	end
+	scroll_children = {}
 end
 
 -- =========================================================
@@ -66,8 +131,6 @@ local function OnLoad()
 	end
 
 	api.SaveSettings()
-
-	-- Build Lookup Table for O(1) checks
 	RebuildBlacklistLookup()
 
 	-- -----------------------------------------------------
@@ -269,7 +332,7 @@ local function OnLoad()
 	whitelist_dropdown:AddAnchor("TOPLEFT", list_name_input, "BOTTOMLEFT", 0, 20)
 
 	local delete_list_btn = list_manager_canvas:CreateChildWidget("button", "delete_list_btn", 0, true)
-	delete_list_btn:SetText("Delete")
+	delete_list_btn:SetText("Delete List")
 	delete_list_btn:AddAnchor("LEFT", whitelist_dropdown, "RIGHT", 5, 0)
 	api.Interface:ApplyButtonSkin(delete_list_btn, BUTTON_BASIC.DEFAULT)
 
@@ -280,36 +343,31 @@ local function OnLoad()
 	blacklist_warning.style:SetColor(1, 0.2, 0.2, 1)
 	blacklist_warning:Show(false)
 
+	-- INPUT BOX
 	local member_input = W_CTRL.CreateEdit("member_input", list_manager_canvas)
-	member_input:SetExtent(130, 30)
+	member_input:SetExtent(250, 30)
 	member_input:AddAnchor("TOPLEFT", list_manager_canvas, 260, 40)
-	member_input:CreateGuideText("Name1, Name2")
+	member_input:SetMaxTextLength(100000) -- Increased to effectively infinite
+	member_input:CreateGuideText("Paste Names Here")
 
 	local add_member_btn = list_manager_canvas:CreateChildWidget("button", "add_member_btn", 0, true)
 	add_member_btn:SetText("Add")
 	add_member_btn:AddAnchor("LEFT", member_input, "RIGHT", 5, 0)
 	api.Interface:ApplyButtonSkin(add_member_btn, BUTTON_BASIC.DEFAULT)
 
-	local remove_member_btn = list_manager_canvas:CreateChildWidget("button", "remove_member_btn", 0, true)
-	remove_member_btn:SetText("Remove")
-	remove_member_btn:AddAnchor("LEFT", add_member_btn, "RIGHT", 5, 0)
-	api.Interface:ApplyButtonSkin(remove_member_btn, BUTTON_BASIC.DEFAULT)
+	-- SCROLL WINDOW SETUP
+	member_scroll_wnd = CreateScrollWindow(list_manager_canvas, "member_scroll_wnd", 0)
+	member_scroll_wnd:Show(true)
+	member_scroll_wnd:RemoveAllAnchors()
+	member_scroll_wnd:AddAnchor("TOPLEFT", member_input, "BOTTOMLEFT", 0, 15)
+	member_scroll_wnd:SetExtent(370, 250)
 
-	local scroll_win = list_manager_canvas:CreateChildWidget("emptywidget", "scroll_win", 0, true)
-	scroll_win:SetExtent(240, 210)
-	scroll_win:AddAnchor("TOPLEFT", member_input, "BOTTOMLEFT", 0, 15)
-
-	local scroll_bg = scroll_win:CreateNinePartDrawable(TEXTURE_PATH.HUD, "background")
+	-- Scroll Background
+	local scroll_bg = member_scroll_wnd:CreateNinePartDrawable(TEXTURE_PATH.HUD, "background")
 	scroll_bg:SetTextureInfo("bg_quest")
 	scroll_bg:SetColor(0, 0, 0, 0.5)
-	scroll_bg:AddAnchor("TOPLEFT", scroll_win, 0, 0)
-	scroll_bg:AddAnchor("BOTTOMRIGHT", scroll_win, 0, 0)
-
-	local display_label = scroll_win:CreateChildWidget("label", "display_label", 0, true)
-	display_label:SetExtent(230, 210)
-	display_label:AddAnchor("TOPLEFT", scroll_win, 5, 5)
-	display_label:SetText("Select a list to view members.")
-	display_label.style:SetAlign(ALIGN.TOP_LEFT)
+	scroll_bg:AddAnchor("TOPLEFT", member_scroll_wnd, 0, 0)
+	scroll_bg:AddAnchor("BOTTOMRIGHT", member_scroll_wnd, 0, 0)
 
 	local function GetListByName(name)
 		if name == "Blacklist" then
@@ -323,14 +381,76 @@ local function OnLoad()
 		if not list_name or list_name == "" then
 			return
 		end
+
 		if list_name == "Blacklist" then
 			blacklist_warning:Show(true)
 		else
 			blacklist_warning:Show(false)
 		end
+
+		-- 1. SAVE SCROLL POSITION
+		local oldScroll = member_scroll_wnd.scroll.vs:GetValue()
+
+		-- 2. FORCE RESET VIEW TO TOP
+		member_scroll_wnd.scroll.vs:SetValue(0)
+		member_scroll_wnd.content:ChangeChildAnchorByScrollValue("vert", 0)
+
+		-- 3. CLEAR OLD WIDGETS
+		ClearScrollList()
+		list_refresh_counter = list_refresh_counter + 1
+
 		local current_list = GetListByName(list_name) or {}
-		local display_str = table.concat(current_list, ", ")
-		display_label:SetText(display_str)
+		local content = member_scroll_wnd.content
+
+		-- 4. REBUILD LIST
+		local itemHeight = 45
+		for i, name in ipairs(current_list) do
+			local yOffset = (i - 1) * itemHeight
+			local unique_id = i .. "_" .. list_refresh_counter
+
+			-- Name Label
+			local label = W_CTRL.CreateLabel("lbl_" .. unique_id, content)
+			label:AddAnchor("TOPLEFT", content, 5, yOffset + 25)
+			label:SetText(name)
+			label.style:SetFontSize(20)
+			label.style:SetAlign(ALIGN.LEFT)
+			label:Show(true)
+			table.insert(scroll_children, label)
+
+			-- Individual Delete Button
+			local delBtn = content:CreateChildWidget("button", "del_" .. unique_id, 0, true)
+			delBtn:AddAnchor("TOPRIGHT", content, -5, yOffset + 10)
+			delBtn:SetExtent(25, 20)
+			delBtn:SetText("X")
+			api.Interface:ApplyButtonSkin(delBtn, BUTTON_BASIC.DEFAULT)
+			delBtn:Show(true)
+			table.insert(scroll_children, delBtn)
+
+			delBtn:SetHandler("OnClick", function()
+				table.remove(current_list, i)
+				api.SaveSettings()
+
+				if list_name == "Blacklist" then
+					RebuildBlacklistLookup()
+				end
+
+				UpdateDisplay(list_name)
+			end)
+		end
+
+		-- 5. RESET RANGE AND RESTORE SCROLL
+		local totalHeight = #current_list * itemHeight
+		member_scroll_wnd:ResetScroll(totalHeight)
+
+		-- Clamp old scroll to new max height
+		local min, max = member_scroll_wnd.scroll.vs:GetMinMaxValues()
+		if oldScroll > max then
+			oldScroll = max
+		end
+
+		-- Restore visual position
+		member_scroll_wnd.scroll.vs:SetValue(oldScroll)
+		member_scroll_wnd.content:ChangeChildAnchorByScrollValue("vert", oldScroll)
 	end
 
 	local function RefreshManagerDropdown()
@@ -382,7 +502,7 @@ local function OnLoad()
 			settings.whitelists[target] = nil
 			api.SaveSettings()
 			RefreshManagerDropdown()
-			display_label:SetText("")
+			ClearScrollList()
 			blacklist_warning:Show(false)
 			api.Log:Info("Deleted list: " .. target)
 		end
@@ -404,49 +524,13 @@ local function OnLoad()
 					end
 					return false
 				end
+
 				for name in string.gmatch(raw_text, "([^,]+)") do
 					name = name:match("^%s*(.-)%s*$")
 					if name ~= "" then
 						local formatted = FormatName(name)
 						if not exists(formatted) then
 							table.insert(current_list, formatted)
-						end
-					end
-				end
-				api.SaveSettings()
-				member_input:SetText("")
-				UpdateDisplay(selected_list_name)
-				if selected_list_name == "Blacklist" then
-					RebuildBlacklistLookup()
-				elseif active_whitelist_dropdown:GetSelectedIndex() > 0 then
-					local active_name =
-						active_whitelist_dropdown.dropdownItem[active_whitelist_dropdown:GetSelectedIndex()]
-					if active_name == selected_list_name then
-						active_whitelist_dropdown:SelectedProc()
-					end
-				end
-			end
-		else
-			api.Log:Error("Select a list first.")
-		end
-	end)
-
-	remove_member_btn:SetHandler("OnClick", function()
-		local idx = whitelist_dropdown:GetSelectedIndex()
-		local list_names = whitelist_dropdown.dropdownItem
-		if idx > 0 and list_names[idx] then
-			local selected_list_name = list_names[idx]
-			local raw_text = member_input:GetText()
-			if raw_text and raw_text ~= "" then
-				local current_list = GetListByName(selected_list_name)
-				for name_to_remove in string.gmatch(raw_text, "([^,]+)") do
-					name_to_remove = name_to_remove:match("^%s*(.-)%s*$")
-					if name_to_remove ~= "" then
-						local formatted = FormatName(name_to_remove)
-						for i = #current_list, 1, -1 do
-							if current_list[i] == formatted then
-								table.remove(current_list, i)
-							end
 						end
 					end
 				end
