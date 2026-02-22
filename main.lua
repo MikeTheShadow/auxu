@@ -18,9 +18,11 @@ local is_recruiting = false
 
 -- UI Elements
 local recruit_textfield, recruit_button, filter_dropdown, chat_filter_dropdown
-local raid_manager, RecruitCanvas
+local raid_manager
 local list_manager_canvas, active_whitelist_dropdown, open_manager_btn, invite_whitelist_btn
 local canvas_width
+local cancelButton
+local preserve_state_checkbox
 
 -- Scroll Window Elements
 local member_scroll_wnd
@@ -115,7 +117,7 @@ end
 
 local function OnLoad()
 	-- Load Settings
-	settings = api.GetSettings("AUXU")
+	settings = api.GetSettings("Actually_Useable_X_Up")
 
 	if settings.whitelists == nil then
 		settings.whitelists = {}
@@ -129,44 +131,68 @@ local function OnLoad()
 	if settings.hide_cancel == nil then
 		settings.hide_cancel = false
 	end
+	-- Settings persistence
+	if settings.cancel_btn_x == nil then
+		settings.cancel_btn_x = (api.Interface:GetScreenWidth() / 2) - 60
+	end
+	if settings.cancel_btn_y == nil then
+		settings.cancel_btn_y = 50
+	end
+	if settings.recruit_text == nil then
+		settings.recruit_text = ""
+	end
+	if settings.filter_selection == nil then
+		settings.filter_selection = 1
+	end
+	if settings.dms_selection == nil then
+		settings.dms_selection = 1
+	end
+	if settings.is_recruiting == nil then
+		settings.is_recruiting = false
+	end
+	if settings.preserve_state == nil then
+		settings.preserve_state = true
+	end
 
 	api.SaveSettings()
 	RebuildBlacklistLookup()
 
 	-- -----------------------------------------------------
-	-- RECRUIT CANVAS UI
+	-- ALWAYS-VISIBLE TOGGLE BUTTON
 	-- -----------------------------------------------------
-	RecruitCanvas = api.Interface:CreateEmptyWindow("recruitWindow")
-	RecruitCanvas:AddAnchor("CENTER", "UIParent", 0, 50)
-	RecruitCanvas:SetExtent(200, 100)
-	RecruitCanvas:Show(false)
+	local btn_x = settings.cancel_btn_x
+	local btn_y = settings.cancel_btn_y
 
-	RecruitCanvas.bg = RecruitCanvas:CreateNinePartDrawable(TEXTURE_PATH.HUD, "background")
-	RecruitCanvas.bg:SetTextureInfo("bg_quest")
-	RecruitCanvas.bg:SetColor(0, 0, 0, 0.5)
-	RecruitCanvas.bg:AddAnchor("TOPLEFT", RecruitCanvas, 0, 0)
-	RecruitCanvas.bg:AddAnchor("BOTTOMRIGHT", RecruitCanvas, 0, 0)
-
-	local cancelButton = RecruitCanvas:CreateChildWidget("button", "cancel_x", 0, true)
-	cancelButton:SetText("Cancel Auto Raid")
-	cancelButton:AddAnchor("TOPLEFT", RecruitCanvas, "TOPLEFT", 37, 34)
+	cancelButton = api.Interface:CreateWidget("button", "cancelAutoRaidBtn", "UIParent")
+	cancelButton:SetText("Start Recruiting")
+	cancelButton:SetExtent(120, 30)
+	cancelButton:AddAnchor("TOPLEFT", "UIParent", btn_x, btn_y)
 	api.Interface:ApplyButtonSkin(cancelButton, BUTTON_BASIC.DEFAULT)
+	cancelButton:Show(true)
 
-	function RecruitCanvas:OnDragStart()
-		if api.Input:IsShiftKeyDown() then
-			RecruitCanvas:StartMoving()
-			api.Cursor:ClearCursor()
-			api.Cursor:SetCursorImage(CURSOR_PATH.MOVE, 0, 0)
-		end
+	function cancelButton:OnDragStart()
+		cancelButton:StartMoving()
+		api.Cursor:ClearCursor()
+		api.Cursor:SetCursorImage(CURSOR_PATH.MOVE, 0, 0)
 	end
-	RecruitCanvas:SetHandler("OnDragStart", RecruitCanvas.OnDragStart)
 
-	function RecruitCanvas:OnDragStop()
-		RecruitCanvas:StopMovingOrSizing()
+	function cancelButton:OnDragStop()
+		cancelButton:StopMovingOrSizing()
+		local current_x, current_y = cancelButton:GetEffectiveOffset()
+		settings.cancel_btn_x = current_x
+		settings.cancel_btn_y = current_y
+		api.SaveSettings()
 		api.Cursor:ClearCursor()
 	end
-	RecruitCanvas:SetHandler("OnDragStop", RecruitCanvas.OnDragStop)
-	RecruitCanvas:EnableDrag(true)
+
+	cancelButton:SetHandler("OnDragStart", cancelButton.OnDragStart)
+	cancelButton:SetHandler("OnDragStop", cancelButton.OnDragStop)
+	if cancelButton.RegisterForDrag ~= nil then
+		cancelButton:RegisterForDrag("LeftButton")
+	end
+	if cancelButton.EnableDrag ~= nil then
+		cancelButton:EnableDrag(true)
+	end
 
 	-- -----------------------------------------------------
 	-- RAID MANAGER UI
@@ -186,25 +212,92 @@ local function OnLoad()
 	recruit_textfield:SetExtent(150, 30)
 	recruit_textfield:SetMaxTextLength(64)
 	recruit_textfield:CreateGuideText("X CR")
+	if settings.preserve_state and settings.recruit_text ~= "" then
+		recruit_textfield:SetText(settings.recruit_text)
+	end
 	recruit_textfield:Show(true)
 
-	if settings.last_recruit_message ~= nil then
-		recruit_textfield:SetText(settings.last_recruit_message)
-	end
+	recruit_textfield:SetHandler("OnTextChanged", function()
+		settings.recruit_text = recruit_textfield:GetText()
+		api.SaveSettings()
+	end)
 
 	filter_dropdown = api.Interface:CreateComboBox(raid_manager)
 	filter_dropdown:SetExtent(100, 30)
 	filter_dropdown:AddAnchor("LEFT", raid_manager, 285, 140)
 	filter_dropdown.dropdownItem = { "Equals", "Contains", "Starts With" }
-	filter_dropdown:Select(1)
+	filter_dropdown:Select(settings.preserve_state and settings.filter_selection or 1)
 	filter_dropdown:Show(true)
 
 	chat_filter_dropdown = api.Interface:CreateComboBox(raid_manager)
 	chat_filter_dropdown:SetExtent(100, 30)
 	chat_filter_dropdown:AddAnchor("LEFT", raid_manager, 390, 140)
 	chat_filter_dropdown.dropdownItem = { "All Chats", "Whispers", "Guild" }
-	chat_filter_dropdown:Select(1)
+	chat_filter_dropdown:Select(settings.preserve_state and settings.dms_selection or 1)
 	chat_filter_dropdown:Show(true)
+
+	-- Preserve State checkbox
+	preserve_state_checkbox = api.Interface:CreateWidget("checkbutton", "preserve_state_cb", raid_manager)
+	preserve_state_checkbox:SetExtent(18, 17)
+	preserve_state_checkbox:AddAnchor("LEFT", chat_filter_dropdown, "RIGHT", 10, 0)
+
+	local cb_bg1 = preserve_state_checkbox:CreateImageDrawable("ui/button/check_button.dds", "background")
+	cb_bg1:SetExtent(18, 17)
+	cb_bg1:AddAnchor("CENTER", preserve_state_checkbox, 0, 0)
+	cb_bg1:SetCoords(0, 0, 18, 17)
+	preserve_state_checkbox:SetNormalBackground(cb_bg1)
+
+	local cb_bg2 = preserve_state_checkbox:CreateImageDrawable("ui/button/check_button.dds", "background")
+	cb_bg2:SetExtent(18, 17)
+	cb_bg2:AddAnchor("CENTER", preserve_state_checkbox, 0, 0)
+	cb_bg2:SetCoords(0, 0, 18, 17)
+	preserve_state_checkbox:SetHighlightBackground(cb_bg2)
+
+	local cb_bg3 = preserve_state_checkbox:CreateImageDrawable("ui/button/check_button.dds", "background")
+	cb_bg3:SetExtent(18, 17)
+	cb_bg3:AddAnchor("CENTER", preserve_state_checkbox, 0, 0)
+	cb_bg3:SetCoords(0, 0, 18, 17)
+	preserve_state_checkbox:SetPushedBackground(cb_bg3)
+
+	local cb_bg4 = preserve_state_checkbox:CreateImageDrawable("ui/button/check_button.dds", "background")
+	cb_bg4:SetExtent(18, 17)
+	cb_bg4:AddAnchor("CENTER", preserve_state_checkbox, 0, 0)
+	cb_bg4:SetCoords(0, 17, 18, 17)
+	preserve_state_checkbox:SetDisabledBackground(cb_bg4)
+
+	local cb_bg5 = preserve_state_checkbox:CreateImageDrawable("ui/button/check_button.dds", "background")
+	cb_bg5:SetExtent(18, 17)
+	cb_bg5:AddAnchor("CENTER", preserve_state_checkbox, 0, 0)
+	cb_bg5:SetCoords(18, 0, 18, 17)
+	preserve_state_checkbox:SetCheckedBackground(cb_bg5)
+
+	local cb_bg6 = preserve_state_checkbox:CreateImageDrawable("ui/button/check_button.dds", "background")
+	cb_bg6:SetExtent(18, 17)
+	cb_bg6:AddAnchor("CENTER", preserve_state_checkbox, 0, 0)
+	cb_bg6:SetCoords(18, 17, 18, 17)
+	preserve_state_checkbox:SetDisabledCheckedBackground(cb_bg6)
+
+	preserve_state_checkbox:SetChecked(settings.preserve_state)
+
+	local preserve_label = raid_manager:CreateChildWidget("label", "preserve_state_label", 0, true)
+	preserve_label:SetText("Preserve State")
+	preserve_label:AddAnchor("LEFT", preserve_state_checkbox, "RIGHT", 4, 0)
+	preserve_label.style:SetFontSize(12)
+	preserve_label.style:SetAlign(ALIGN.LEFT)
+	preserve_label.style:SetColor(0, 0.5, 0, 1)
+
+	function preserve_state_checkbox:OnCheckChanged()
+		settings.preserve_state = self:GetChecked()
+		api.SaveSettings()
+	end
+	preserve_state_checkbox:SetHandler("OnCheckChanged", preserve_state_checkbox.OnCheckChanged)
+
+	-- Save dropdown selections when raid window closes
+	raid_manager:SetHandler("OnHide", function()
+		settings.filter_selection = filter_dropdown.selctedIndex
+		settings.dms_selection = chat_filter_dropdown.selctedIndex
+		api.SaveSettings()
+	end)
 
 	open_manager_btn = raid_manager:CreateChildWidget("button", "open_list_manager", 0, true)
 	open_manager_btn:SetExtent(140, 30)
@@ -559,36 +652,50 @@ local function OnLoad()
 		end
 	end)
 
+	-- Restore recruiting state
+	if settings.preserve_state then
+		is_recruiting = settings.is_recruiting
+		if is_recruiting then
+			recruit_button:SetText("Stop Recruiting")
+			cancelButton:SetText("Stop Recruiting")
+			recruit_textfield:Enable(false)
+			recruit_message = string.lower(recruit_textfield:GetText())
+		end
+	end
+
 	recruit_button:SetHandler("OnClick", function()
 		if is_recruiting then
 			is_recruiting = false
 			recruit_button:SetText("Start Recruiting")
+			cancelButton:SetText("Start Recruiting")
 			recruit_textfield:Enable(true)
-			RecruitCanvas:Show(false)
 		elseif is_recruiting == false and #recruit_textfield:GetText() > 0 then
 			is_recruiting = true
 			recruit_button:SetText("Stop Recruiting")
+			cancelButton:SetText("Stop Recruiting")
 			recruit_textfield:Enable(false)
 			recruit_message = string.lower(recruit_textfield:GetText())
-			RecruitCanvas:Show(true)
 			settings.last_recruit_message = recruit_message
-			api.SaveSettings()
 		end
+		settings.is_recruiting = is_recruiting
+		api.SaveSettings()
 	end)
 
 	cancelButton:SetHandler("OnClick", function()
 		if is_recruiting then
 			is_recruiting = false
 			recruit_button:SetText("Start Recruiting")
+			cancelButton:SetText("Start Recruiting")
 			recruit_textfield:Enable(true)
-			RecruitCanvas:Show(false)
 		else
 			is_recruiting = true
 			recruit_button:SetText("Stop Recruiting")
+			cancelButton:SetText("Stop Recruiting")
 			recruit_textfield:Enable(false)
 			recruit_message = string.lower(recruit_textfield:GetText())
-			RecruitCanvas:Show(true)
 		end
+		settings.is_recruiting = is_recruiting
+		api.SaveSettings()
 	end)
 end
 
@@ -597,7 +704,7 @@ local function OnUnload()
 		recruit_button:Show(false)
 		recruit_textfield:Show(false)
 		raid_manager:SetExtent(canvas_width, 395)
-		RecruitCanvas:Show(false)
+		cancelButton:Show(false)
 		filter_dropdown:Show(false)
 		chat_filter_dropdown:Show(false)
 		if list_manager_canvas then
@@ -611,6 +718,9 @@ local function OnUnload()
 		end
 		if invite_whitelist_btn then
 			invite_whitelist_btn:Show(false)
+		end
+		if preserve_state_checkbox then
+			preserve_state_checkbox:Show(false)
 		end
 	end
 end
