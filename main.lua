@@ -18,7 +18,7 @@ local is_recruiting = false
 
 -- UI Elements
 local recruit_textfield, recruit_button, filter_dropdown, chat_filter_dropdown
-local raid_manager, RecruitCanvas
+local raid_manager
 local list_manager_canvas, active_whitelist_dropdown, open_manager_btn, invite_whitelist_btn
 local canvas_width
 local cancelButton
@@ -117,7 +117,7 @@ end
 
 local function OnLoad()
 	-- Load Settings
-	settings = api.GetSettings("AUXU")
+	settings = api.GetSettings("Actually_Useable_X_Up")
 
 	if settings.whitelists == nil then
 		settings.whitelists = {}
@@ -193,41 +193,6 @@ local function OnLoad()
 	if cancelButton.EnableDrag ~= nil then
 		cancelButton:EnableDrag(true)
 	end
-
-	-- -----------------------------------------------------
-	-- RECRUIT CANVAS UI
-	-- -----------------------------------------------------
-	RecruitCanvas = api.Interface:CreateEmptyWindow("recruitWindow")
-	RecruitCanvas:AddAnchor("CENTER", "UIParent", 0, 50)
-	RecruitCanvas:SetExtent(200, 100)
-	RecruitCanvas:Show(false)
-
-	RecruitCanvas.bg = RecruitCanvas:CreateNinePartDrawable(TEXTURE_PATH.HUD, "background")
-	RecruitCanvas.bg:SetTextureInfo("bg_quest")
-	RecruitCanvas.bg:SetColor(0, 0, 0, 0.5)
-	RecruitCanvas.bg:AddAnchor("TOPLEFT", RecruitCanvas, 0, 0)
-	RecruitCanvas.bg:AddAnchor("BOTTOMRIGHT", RecruitCanvas, 0, 0)
-
-	local recruitCancelBtn = RecruitCanvas:CreateChildWidget("button", "cancel_x", 0, true)
-	recruitCancelBtn:SetText("Cancel Auto Raid")
-	recruitCancelBtn:AddAnchor("TOPLEFT", RecruitCanvas, "TOPLEFT", 37, 34)
-	api.Interface:ApplyButtonSkin(recruitCancelBtn, BUTTON_BASIC.DEFAULT)
-
-	function RecruitCanvas:OnDragStart()
-		if api.Input:IsShiftKeyDown() then
-			RecruitCanvas:StartMoving()
-			api.Cursor:ClearCursor()
-			api.Cursor:SetCursorImage(CURSOR_PATH.MOVE, 0, 0)
-		end
-	end
-	RecruitCanvas:SetHandler("OnDragStart", RecruitCanvas.OnDragStart)
-
-	function RecruitCanvas:OnDragStop()
-		RecruitCanvas:StopMovingOrSizing()
-		api.Cursor:ClearCursor()
-	end
-	RecruitCanvas:SetHandler("OnDragStop", RecruitCanvas.OnDragStop)
-	RecruitCanvas:EnableDrag(true)
 
 	-- -----------------------------------------------------
 	-- RAID MANAGER UI
@@ -319,6 +284,7 @@ local function OnLoad()
 	preserve_label:AddAnchor("LEFT", preserve_state_checkbox, "RIGHT", 4, 0)
 	preserve_label.style:SetFontSize(12)
 	preserve_label.style:SetAlign(ALIGN.LEFT)
+	preserve_label.style:SetColor(0, 0.5, 0, 1)
 
 	function preserve_state_checkbox:OnCheckChanged()
 		settings.preserve_state = self:GetChecked()
@@ -694,7 +660,6 @@ local function OnLoad()
 			cancelButton:SetText("Stop Recruiting")
 			recruit_textfield:Enable(false)
 			recruit_message = string.lower(recruit_textfield:GetText())
-			RecruitCanvas:Show(true)
 		end
 	end
 
@@ -704,14 +669,12 @@ local function OnLoad()
 			recruit_button:SetText("Start Recruiting")
 			cancelButton:SetText("Start Recruiting")
 			recruit_textfield:Enable(true)
-			RecruitCanvas:Show(false)
 		elseif is_recruiting == false and #recruit_textfield:GetText() > 0 then
 			is_recruiting = true
 			recruit_button:SetText("Stop Recruiting")
 			cancelButton:SetText("Stop Recruiting")
 			recruit_textfield:Enable(false)
 			recruit_message = string.lower(recruit_textfield:GetText())
-			RecruitCanvas:Show(true)
 			settings.last_recruit_message = recruit_message
 		end
 		settings.is_recruiting = is_recruiting
@@ -724,29 +687,15 @@ local function OnLoad()
 			recruit_button:SetText("Start Recruiting")
 			cancelButton:SetText("Start Recruiting")
 			recruit_textfield:Enable(true)
-			RecruitCanvas:Show(false)
 		else
 			is_recruiting = true
 			recruit_button:SetText("Stop Recruiting")
 			cancelButton:SetText("Stop Recruiting")
 			recruit_textfield:Enable(false)
 			recruit_message = string.lower(recruit_textfield:GetText())
-			RecruitCanvas:Show(true)
 		end
 		settings.is_recruiting = is_recruiting
 		api.SaveSettings()
-	end)
-
-	recruitCancelBtn:SetHandler("OnClick", function()
-		if is_recruiting then
-			is_recruiting = false
-			recruit_button:SetText("Start Recruiting")
-			cancelButton:SetText("Start Recruiting")
-			recruit_textfield:Enable(true)
-			RecruitCanvas:Show(false)
-			settings.is_recruiting = is_recruiting
-			api.SaveSettings()
-		end
 	end)
 end
 
@@ -756,7 +705,6 @@ local function OnUnload()
 		recruit_textfield:Show(false)
 		raid_manager:SetExtent(canvas_width, 395)
 		cancelButton:Show(false)
-		RecruitCanvas:Show(false)
 		filter_dropdown:Show(false)
 		chat_filter_dropdown:Show(false)
 		if list_manager_canvas then
