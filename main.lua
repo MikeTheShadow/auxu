@@ -22,6 +22,7 @@ local raid_manager, RecruitCanvas
 local list_manager_canvas, active_whitelist_dropdown, open_manager_btn, invite_whitelist_btn
 local canvas_width
 local cancelButton
+local preserve_state_checkbox
 
 -- Scroll Window Elements
 local member_scroll_wnd
@@ -149,6 +150,9 @@ local function OnLoad()
 	if settings.is_recruiting == nil then
 		settings.is_recruiting = false
 	end
+	if settings.preserve_state == nil then
+		settings.preserve_state = true
+	end
 
 	api.SaveSettings()
 	RebuildBlacklistLookup()
@@ -243,7 +247,9 @@ local function OnLoad()
 	recruit_textfield:SetExtent(150, 30)
 	recruit_textfield:SetMaxTextLength(64)
 	recruit_textfield:CreateGuideText("X CR")
-	recruit_textfield:SetText(settings.recruit_text)
+	if settings.preserve_state and settings.recruit_text ~= "" then
+		recruit_textfield:SetText(settings.recruit_text)
+	end
 	recruit_textfield:Show(true)
 
 	recruit_textfield:SetHandler("OnTextChanged", function()
@@ -255,15 +261,70 @@ local function OnLoad()
 	filter_dropdown:SetExtent(100, 30)
 	filter_dropdown:AddAnchor("LEFT", raid_manager, 285, 140)
 	filter_dropdown.dropdownItem = { "Equals", "Contains", "Starts With" }
-	filter_dropdown:Select(settings.filter_selection)
+	filter_dropdown:Select(settings.preserve_state and settings.filter_selection or 1)
 	filter_dropdown:Show(true)
 
 	chat_filter_dropdown = api.Interface:CreateComboBox(raid_manager)
 	chat_filter_dropdown:SetExtent(100, 30)
 	chat_filter_dropdown:AddAnchor("LEFT", raid_manager, 390, 140)
 	chat_filter_dropdown.dropdownItem = { "All Chats", "Whispers", "Guild" }
-	chat_filter_dropdown:Select(settings.dms_selection)
+	chat_filter_dropdown:Select(settings.preserve_state and settings.dms_selection or 1)
 	chat_filter_dropdown:Show(true)
+
+	-- Preserve State checkbox
+	preserve_state_checkbox = api.Interface:CreateWidget("checkbutton", "preserve_state_cb", raid_manager)
+	preserve_state_checkbox:SetExtent(18, 17)
+	preserve_state_checkbox:AddAnchor("LEFT", chat_filter_dropdown, "RIGHT", 10, 0)
+
+	local cb_bg1 = preserve_state_checkbox:CreateImageDrawable("ui/button/check_button.dds", "background")
+	cb_bg1:SetExtent(18, 17)
+	cb_bg1:AddAnchor("CENTER", preserve_state_checkbox, 0, 0)
+	cb_bg1:SetCoords(0, 0, 18, 17)
+	preserve_state_checkbox:SetNormalBackground(cb_bg1)
+
+	local cb_bg2 = preserve_state_checkbox:CreateImageDrawable("ui/button/check_button.dds", "background")
+	cb_bg2:SetExtent(18, 17)
+	cb_bg2:AddAnchor("CENTER", preserve_state_checkbox, 0, 0)
+	cb_bg2:SetCoords(0, 0, 18, 17)
+	preserve_state_checkbox:SetHighlightBackground(cb_bg2)
+
+	local cb_bg3 = preserve_state_checkbox:CreateImageDrawable("ui/button/check_button.dds", "background")
+	cb_bg3:SetExtent(18, 17)
+	cb_bg3:AddAnchor("CENTER", preserve_state_checkbox, 0, 0)
+	cb_bg3:SetCoords(0, 0, 18, 17)
+	preserve_state_checkbox:SetPushedBackground(cb_bg3)
+
+	local cb_bg4 = preserve_state_checkbox:CreateImageDrawable("ui/button/check_button.dds", "background")
+	cb_bg4:SetExtent(18, 17)
+	cb_bg4:AddAnchor("CENTER", preserve_state_checkbox, 0, 0)
+	cb_bg4:SetCoords(0, 17, 18, 17)
+	preserve_state_checkbox:SetDisabledBackground(cb_bg4)
+
+	local cb_bg5 = preserve_state_checkbox:CreateImageDrawable("ui/button/check_button.dds", "background")
+	cb_bg5:SetExtent(18, 17)
+	cb_bg5:AddAnchor("CENTER", preserve_state_checkbox, 0, 0)
+	cb_bg5:SetCoords(18, 0, 18, 17)
+	preserve_state_checkbox:SetCheckedBackground(cb_bg5)
+
+	local cb_bg6 = preserve_state_checkbox:CreateImageDrawable("ui/button/check_button.dds", "background")
+	cb_bg6:SetExtent(18, 17)
+	cb_bg6:AddAnchor("CENTER", preserve_state_checkbox, 0, 0)
+	cb_bg6:SetCoords(18, 17, 18, 17)
+	preserve_state_checkbox:SetDisabledCheckedBackground(cb_bg6)
+
+	preserve_state_checkbox:SetChecked(settings.preserve_state)
+
+	local preserve_label = raid_manager:CreateChildWidget("label", "preserve_state_label", 0, true)
+	preserve_label:SetText("Preserve State")
+	preserve_label:AddAnchor("LEFT", preserve_state_checkbox, "RIGHT", 4, 0)
+	preserve_label.style:SetFontSize(12)
+	preserve_label.style:SetAlign(ALIGN.LEFT)
+
+	function preserve_state_checkbox:OnCheckChanged()
+		settings.preserve_state = self:GetChecked()
+		api.SaveSettings()
+	end
+	preserve_state_checkbox:SetHandler("OnCheckChanged", preserve_state_checkbox.OnCheckChanged)
 
 	-- Save dropdown selections when raid window closes
 	raid_manager:SetHandler("OnHide", function()
@@ -626,13 +687,15 @@ local function OnLoad()
 	end)
 
 	-- Restore recruiting state
-	is_recruiting = settings.is_recruiting
-	if is_recruiting then
-		recruit_button:SetText("Stop Recruiting")
-		cancelButton:SetText("Stop Recruiting")
-		recruit_textfield:Enable(false)
-		recruit_message = string.lower(recruit_textfield:GetText())
-		RecruitCanvas:Show(true)
+	if settings.preserve_state then
+		is_recruiting = settings.is_recruiting
+		if is_recruiting then
+			recruit_button:SetText("Stop Recruiting")
+			cancelButton:SetText("Stop Recruiting")
+			recruit_textfield:Enable(false)
+			recruit_message = string.lower(recruit_textfield:GetText())
+			RecruitCanvas:Show(true)
+		end
 	end
 
 	recruit_button:SetHandler("OnClick", function()
@@ -707,6 +770,9 @@ local function OnUnload()
 		end
 		if invite_whitelist_btn then
 			invite_whitelist_btn:Show(false)
+		end
+		if preserve_state_checkbox then
+			preserve_state_checkbox:Show(false)
 		end
 	end
 end
