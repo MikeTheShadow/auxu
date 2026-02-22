@@ -4,7 +4,7 @@ local list_manager = require("AUXU/list_manager")
 
 local auxu = {
 	name = "Actually Useable X Up",
-	version = "3.1",
+	version = "3.0",
 	author = "MikeTheShadow",
 	desc = "A simple raid manager",
 }
@@ -14,7 +14,6 @@ local settings = nil
 local blacklist_lookup = {}
 local active_whitelist_lookup = nil
 local recruit_message = ""
-local is_recruiting = false
 
 -- UI references
 local recruit_textfield, recruit_button, filter_dropdown, chat_filter_dropdown
@@ -37,7 +36,7 @@ local function UpdateFloatingButtonVisibility()
 	if not cancelButton then
 		return
 	end
-	if is_recruiting then
+	if settings.is_recruiting then
 		cancelButton:Show(true)
 	else
 		cancelButton:Show(settings.always_visible)
@@ -46,7 +45,9 @@ end
 
 -- Disables recruiting state and syncs buttons
 local function ResetRecruit()
-	is_recruiting = false
+	settings.is_recruiting = false
+	api.SaveSettings()
+
 	recruit_button:SetText("Start Recruiting")
 	if cancelButton then
 		cancelButton:SetText("Start Recruiting")
@@ -89,6 +90,9 @@ local function OnLoad()
 	if settings.active_whitelist == nil then
 		settings.active_whitelist = "Select Whitelist"
 	end
+	if settings.is_recruiting == nil then
+		settings.is_recruiting = false
+	end
 
 	api.SaveSettings()
 	RebuildBlacklistLookup()
@@ -120,8 +124,6 @@ local function OnLoad()
 	if cancelButton.EnableDrag ~= nil then
 		cancelButton:EnableDrag(true)
 	end
-
-	UpdateFloatingButtonVisibility()
 
 	-- Raid Manager Panel Setup
 	raid_manager = ADDON:GetContent(UIC.RAID_MANAGER)
@@ -202,7 +204,6 @@ local function OnLoad()
 		end
 		active_whitelist_dropdown.dropdownItem = items
 
-		-- Look for the previously saved selection
 		for i, v in ipairs(items) do
 			if v == settings.active_whitelist then
 				target_idx = i
@@ -219,7 +220,7 @@ local function OnLoad()
 		end
 	end
 
-	-- Initialize the List Manager sub-module and pass callbacks for state syncing
+	-- Initialize the List Manager sub-module
 	list_manager.Init(settings, {
 		OnBlacklistUpdate = RebuildBlacklistLookup,
 		OnWhitelistUpdate = RefreshMainDropdown,
@@ -229,7 +230,6 @@ local function OnLoad()
 		local idx = self:GetSelectedIndex()
 		local selected_name = self.dropdownItem[idx]
 
-		-- Save selected state
 		settings.active_whitelist = selected_name
 		api.SaveSettings()
 
@@ -274,16 +274,29 @@ local function OnLoad()
 
 	open_manager_btn:SetHandler("OnClick", list_manager.Toggle)
 
+	-- Restore active recruiting state on load
+	if settings.is_recruiting and settings.last_recruit_message ~= nil and #settings.last_recruit_message > 0 then
+		recruit_button:SetText("Stop Recruiting")
+		cancelButton:SetText("Stop Recruiting")
+		recruit_textfield:Enable(false)
+		recruit_message = string.lower(settings.last_recruit_message)
+	else
+		settings.is_recruiting = false
+	end
+
+	UpdateFloatingButtonVisibility()
+
 	-- Sync logic between both start/stop buttons
 	local function ToggleRecruiting()
-		if is_recruiting then
-			is_recruiting = false
+		if settings.is_recruiting then
+			settings.is_recruiting = false
 			recruit_button:SetText("Start Recruiting")
 			cancelButton:SetText("Start Recruiting")
 			recruit_textfield:Enable(true)
 			UpdateFloatingButtonVisibility()
-		elseif is_recruiting == false and #recruit_textfield:GetText() > 0 then
-			is_recruiting = true
+			api.SaveSettings()
+		elseif settings.is_recruiting == false and #recruit_textfield:GetText() > 0 then
+			settings.is_recruiting = true
 			recruit_button:SetText("Stop Recruiting")
 			cancelButton:SetText("Stop Recruiting")
 			recruit_textfield:Enable(false)
@@ -330,7 +343,6 @@ local function OnUnload()
 		api.Interface:Free(cancelButton)
 	end
 
-	-- Clean up list manager
 	list_manager.Free()
 
 	if raid_manager then
@@ -349,7 +361,7 @@ local function OnChatMessage(channelId, speakerId, _, speakerName, message)
 		return
 	end
 
-	if not is_recruiting then
+	if not settings.is_recruiting then
 		ResetRecruit()
 		return
 	end
@@ -358,7 +370,6 @@ local function OnChatMessage(channelId, speakerId, _, speakerName, message)
 		return
 	end
 
-	-- Run chat matching filters
 	if filter_selection == 1 and message ~= recruit_message then
 		return
 	elseif filter_selection == 2 and string.find(message, recruit_message, 1, true) == nil then
@@ -367,7 +378,6 @@ local function OnChatMessage(channelId, speakerId, _, speakerName, message)
 		return
 	end
 
-	-- Filter by specified chat channel
 	local recruit_method = chat_filter_dropdown.selctedIndex
 	if recruit_method == 1 then
 		api.Log:Info(("Inviting " .. speakerName))
@@ -381,7 +391,6 @@ local function OnChatMessage(channelId, speakerId, _, speakerName, message)
 	end
 end
 
--- Bind the addon lifecycle
 auxu.OnLoad = OnLoad
 auxu.OnUnload = OnUnload
 api.On("CHAT_MESSAGE", OnChatMessage)
