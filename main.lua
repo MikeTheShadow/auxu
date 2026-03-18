@@ -1,6 +1,6 @@
 local api = require("api")
-local utils = require("AUXU/utils")
-local list_manager = require("AUXU/list_manager")
+local utils = require("Actually_Useable_X_Up/utils")
+local list_manager = require("Actually_Useable_X_Up/list_manager")
 
 local auxu = {
 	name = "Actually Useable X Up",
@@ -57,7 +57,7 @@ local function ResetRecruit()
 end
 
 local function OnLoad()
-	settings = api.GetSettings("AUXU")
+	settings = api.GetSettings("Actually_Useable_X_Up")
 
 	-- Default settings injections
 	if settings.whitelists == nil then

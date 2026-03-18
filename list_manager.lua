@@ -1,5 +1,5 @@
 local api = require("api")
-local utils = require("AUXU/utils")
+local utils = require("Actually_Useable_X_Up/utils")
 
 local list_manager = {}
 local canvas
